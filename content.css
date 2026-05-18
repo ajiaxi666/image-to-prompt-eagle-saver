@@ -1,125 +1,301 @@
 /* ---- Hover Button ---- */
 #eps-hover-btn {
-  display: none;
   position: fixed;
   z-index: 2147483646;
-  width: 28px; height: 28px;
-  border-radius: 6px;
-  border: none;
-  background: rgba(99,102,241,0.92);
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
+  display: none;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-  transition: transform 0.15s;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(79, 70, 229, 0.94);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.24);
+  cursor: pointer;
+  font-size: 15px;
   pointer-events: auto;
+  transition: transform 0.15s, box-shadow 0.15s;
 }
-#eps-hover-btn:hover { transform: scale(1.1); }
+#eps-hover-btn:hover {
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.28);
+  transform: scale(1.06);
+}
 
 /* ---- Panel ---- */
 #eps-panel {
-  position: fixed; top: 0; right: 0; z-index: 2147483647;
-  width: 420px; height: 100vh;
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 2147483647;
+  width: min(432px, 100vw);
+  height: 100vh;
   transform: translateX(100%);
-  transition: transform 0.25s cubic-bezier(0.16,1,0.3,1);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
 }
-#eps-panel.eps-open { transform: translateX(0); pointer-events: auto; }
+#eps-panel.eps-open {
+  transform: translateX(0);
+  pointer-events: auto;
+}
 
 .eps-shell {
-  height: 100%; overflow-y: auto;
-  background: rgba(18,18,22,0.96);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  padding: 18px;
+  overflow-y: auto;
+  color: #e5e7eb;
+  background: rgba(15, 23, 42, 0.96);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: -24px 0 64px rgba(15, 23, 42, 0.24);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  color: #e4e4e7;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 13px;
-  padding: 16px;
-  display: flex; flex-direction: column; gap: 14px;
+}
+
+.eps-shell::-webkit-scrollbar { width: 8px; }
+.eps-shell::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border: 2px solid rgba(15, 23, 42, 0.96);
+  border-radius: 999px;
 }
 
 .eps-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
-.eps-header strong { font-size: 15px; }
+.eps-header strong {
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.eps-icon-btn,
+.eps-close {
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #aeb8c8;
+  background: transparent;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
 
 .eps-icon-btn {
-  background: none; border: none; color: #a1a1aa; font-size: 18px; cursor: pointer; padding: 0 4px;
+  padding: 4px 6px;
+  font-size: 18px;
 }
-.eps-icon-btn:hover { color: #fff; }
-
 .eps-close {
-  background: none; border: none; color: #a1a1aa; font-size: 22px; cursor: pointer; line-height: 1;
+  width: 30px;
+  height: 30px;
+  font-size: 22px;
 }
-.eps-close:hover { color: #fff; }
+.eps-icon-btn:hover,
+.eps-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
 
-.eps-row { display: flex; gap: 10px; align-items: flex-start; }
+.eps-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
 .eps-preview {
-  width: 72px; height: 72px; border-radius: 8px; overflow: hidden;
-  background: rgba(255,255,255,0.06); flex-shrink: 0;
+  width: 76px;
+  height: 76px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
 }
-.eps-preview img { width: 100%; height: 100%; object-fit: cover; }
-.eps-img-info { flex: 1; min-width: 0; }
-.eps-img-info strong { display: block; font-size: 13px; margin-bottom: 2px; }
-.eps-img-info span { display: block; font-size: 11px; color: #71717a; word-break: break-all; }
+.eps-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.eps-img-info {
+  flex: 1;
+  min-width: 0;
+}
+.eps-img-info strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #f8fafc;
+  font-size: 13px;
+}
+.eps-img-info span {
+  display: block;
+  color: #8b97aa;
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-all;
+}
 
-.eps-section { display: flex; flex-direction: column; gap: 8px; }
-.eps-section-head { display: flex; align-items: center; justify-content: space-between; }
-.eps-section-head strong { font-size: 13px; color: #a1a1aa; }
+.eps-section {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.eps-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.eps-section-head strong {
+  color: #b8c1cf;
+  font-size: 13px;
+  font-weight: 700;
+}
 
-.eps-chips { display: flex; gap: 4px; }
+.eps-chips {
+  display: flex;
+  gap: 5px;
+}
 .eps-chip {
-  padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12);
-  background: transparent; color: #a1a1aa; font-size: 11px; cursor: pointer;
-  transition: all 0.15s;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 999px;
+  color: #b8c1cf;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.eps-chip:hover { border-color: rgba(255,255,255,0.3); color: #fff; }
-.eps-chip.active { background: rgba(99,102,241,0.2); border-color: #6366f1; color: #818cf8; }
+.eps-chip:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.eps-chip.active {
+  color: #c7d2fe;
+  background: rgba(79, 70, 229, 0.22);
+  border-color: rgba(129, 140, 248, 0.58);
+}
 
 .eps-textarea {
-  width: 100%; min-height: 180px; padding: 12px; border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04);
-  color: #e4e4e7; font-size: 13px; line-height: 1.7; resize: vertical;
-  font-family: inherit; outline: none;
+  width: 100%;
+  min-height: 196px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #e5e7eb;
+  background: rgba(255, 255, 255, 0.055);
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.eps-textarea:focus { border-color: rgba(99,102,241,0.4); }
+.eps-textarea:focus {
+  border-color: rgba(129, 140, 248, 0.65);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+}
 
-.eps-meta { display: flex; justify-content: space-between; font-size: 11px; color: #71717a; }
+.eps-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #8b97aa;
+  font-size: 11px;
+}
 #eps-status[data-tone="success"] { color: #34d399; }
-#eps-status[data-tone="error"] { color: #f87171; }
+#eps-status[data-tone="error"] { color: #fb7185; }
 #eps-status[data-tone="working"] { color: #fbbf24; }
 
-.eps-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.eps-btn {
-  flex: 1; padding: 10px 0; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.06); color: #e4e4e7; font-size: 13px;
-  cursor: pointer; transition: all 0.15s; font-family: inherit; text-align: center;
+.eps-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
-.eps-btn:hover { background: rgba(255,255,255,0.1); }
-.eps-btn.eps-busy { opacity: 0.5; pointer-events: none; }
+.eps-btn {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 8px;
+  color: #e5e7eb;
+  background: rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+}
+.eps-btn:hover {
+  background: rgba(255, 255, 255, 0.11);
+  transform: translateY(-1px);
+}
+.eps-btn.eps-busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
 
-.eps-btn-copy { flex: 0 0 auto; min-width: 90px; }
-.eps-btn-save { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3); color: #a5b4fc; }
-.eps-btn-save:hover { background: rgba(99,102,241,0.25); }
+.eps-btn-copy {
+  flex: 0 0 auto;
+  min-width: 92px;
+}
+.eps-btn-save {
+  color: #c7d2fe;
+  background: rgba(79, 70, 229, 0.18);
+  border-color: rgba(129, 140, 248, 0.4);
+}
+.eps-btn-save:hover {
+  background: rgba(79, 70, 229, 0.28);
+}
 
-.eps-save-row { display: flex; gap: 8px; }
-.eps-third-party { position: relative; flex: 1; }
+.eps-save-row {
+  display: flex;
+  gap: 8px;
+}
+.eps-third-party {
+  position: relative;
+  flex: 1;
+}
 .eps-third-dropdown {
-  position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 4px;
-  background: rgba(30,30,40,0.97); border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px; overflow: hidden; z-index: 10;
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  z-index: 10;
+  margin-bottom: 6px;
+  overflow: hidden;
+  background: rgba(30, 41, 59, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26);
 }
 .eps-dropdown-item {
-  display: block; width: 100%; padding: 9px 12px; border: none;
-  background: transparent; color: #e4e4e7; font-size: 12px; cursor: pointer;
-  text-align: left; font-family: inherit; transition: background 0.1s;
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  color: #e5e7eb;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  transition: background 0.1s;
 }
-.eps-dropdown-item:hover { background: rgba(99,102,241,0.15); }
-.eps-dropdown-item + .eps-dropdown-item { border-top: 1px solid rgba(255,255,255,0.05); }
+.eps-dropdown-item:hover { background: rgba(79, 70, 229, 0.18); }
+.eps-dropdown-item + .eps-dropdown-item { border-top: 1px solid rgba(255, 255, 255, 0.06); }
 
 @media (max-width: 480px) {
   #eps-panel { width: 100vw; }
+  .eps-shell { padding: 14px; }
 }
