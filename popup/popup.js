@@ -78,7 +78,7 @@ async function loadHistory() {
 
     const badge = document.createElement('span');
     badge.className = `history-target ${item.target}`;
-    badge.textContent = 'Eagle';
+    badge.textContent = item.target === 'local' ? '本地' : 'Eagle';
 
     const time = document.createElement('span');
     time.className = 'history-time';

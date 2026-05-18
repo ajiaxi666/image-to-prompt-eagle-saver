@@ -50,8 +50,14 @@ panel.innerHTML = `
         <button class="eps-btn eps-btn-copy" id="eps-copy">📋 复制</button>
       </div>
       <div class="eps-save-row" id="eps-save-row" style="display:none">
-        <button class="eps-btn eps-btn-save" id="eps-save-eagle">🦅 保存到 Eagle</button>
-        <button class="eps-btn eps-btn-save" id="eps-save-feishu">🌐 保存到飞书</button>
+        <button class="eps-btn eps-btn-save" id="eps-save-local">💾 保存到本地库</button>
+        <div class="eps-third-party">
+          <button class="eps-btn eps-btn-save" id="eps-third-toggle">📤 第三方 ▾</button>
+          <div class="eps-third-dropdown" id="eps-third-dropdown" style="display:none">
+            <button class="eps-dropdown-item" data-target="eagle">🦅 Eagle</button>
+            <button class="eps-dropdown-item" data-target="feishu">🌐 飞书</button>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -91,8 +97,20 @@ document.getElementById('eps-detail-full').addEventListener('click', () => switc
 document.getElementById('eps-detail-short').addEventListener('click', () => switchDetail('short'));
 document.getElementById('eps-toggle-lang').addEventListener('click', toggleLang);
 document.getElementById('eps-copy').addEventListener('click', copyPrompt);
-document.getElementById('eps-save-eagle').addEventListener('click', saveToEagle);
-document.getElementById('eps-save-feishu').addEventListener('click', saveToFeishu);
+document.getElementById('eps-save-local').addEventListener('click', saveToLocal);
+document.getElementById('eps-third-toggle').addEventListener('click', toggleThirdDropdown);
+document.getElementById('eps-third-dropdown').addEventListener('click', e => {
+  const btn = e.target.closest('[data-target]');
+  if (!btn) return;
+  if (btn.dataset.target === 'eagle') saveToEagle();
+  else if (btn.dataset.target === 'feishu') saveToFeishu();
+  document.getElementById('eps-third-dropdown').style.display = 'none';
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.eps-third-party'))
+    document.getElementById('eps-third-dropdown').style.display = 'none';
+});
 
 document.getElementById('eps-prompt-text').addEventListener('input', () => {
   const text = document.getElementById('eps-prompt-text').value;
@@ -183,6 +201,26 @@ async function copyPrompt() {
   await navigator.clipboard.writeText(text);
   setStatus('已复制', 'success');
 }
+function toggleThirdDropdown() {
+  const dd = document.getElementById('eps-third-dropdown');
+  dd.style.display = dd.style.display === 'none' ? '' : 'none';
+}
+
+async function saveToLocal() {
+  setStatus('保存中…', 'working');
+  try {
+    const src = currentImage?.currentSrc || currentImage?.src || document.getElementById('eps-preview-img').src;
+    const res = await chrome.runtime.sendMessage({
+      type: 'SAVE_LOCAL',
+      imageUrl: src,
+      pageUrl: location.href,
+      analysis: { ...panelData, prompt_en: panelData.fullEN, prompt_zh: panelData.fullZH },
+    });
+    if (!res?.ok) throw new Error(res?.error || '保存失败');
+    setStatus('已保存到本地库', 'success');
+  } catch (err) { setStatus(err.message, 'error'); }
+}
+
 async function saveToEagle() {
   setStatus('保存中…', 'working');
   try {

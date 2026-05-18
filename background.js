@@ -585,6 +585,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     handleAnalyzeImage(msg.imageUrl, msg.pageUrl).then(sendResponse);
     return true;
   }
+  if (msg.type === 'SAVE_LOCAL') {
+    saveToHistory({ imageUrl: msg.imageUrl, pageUrl: msg.pageUrl, analysis: msg.analysis, target: 'local' });
+    sendResponse({ ok: true });
+    return false;
+  }
   if (msg.type === 'SAVE_TO_EAGLE') {
     handleEagleSave(msg.imageUrl, msg.pageUrl, msg.analysis);
     sendResponse({ ok: true });
