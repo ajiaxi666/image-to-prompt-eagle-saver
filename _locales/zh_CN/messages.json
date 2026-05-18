@@ -1,0 +1,11 @@
+{
+  "appName": {
+    "message": "Eagle 图片提示词助手"
+  },
+  "appDesc": {
+    "message": "右键图片，AI 生成专业提示词，一键保存到 Eagle 素材库"
+  },
+  "menuSaveEagle": {
+    "message": "保存到 Eagle（生成提示词）"
+  }
+}

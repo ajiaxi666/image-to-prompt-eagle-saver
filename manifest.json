@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "Eagle 图片提示词助手",
+  "short_name": "EaglePrompt",
+  "description": "右键图片，AI 生成专业提示词，一键保存到 Eagle 素材库",
+  "version": "1.1.0",
+  "default_locale": "zh_CN",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "notifications",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://localhost:41595/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://open.feishu.cn/*"
+  ],
+  "optional_host_permissions": [
+    "https://api.openai.com/*",
+    "https://open.bigmodel.cn/*",
+    "https://dashscope.aliyuncs.com/*",
+    "https://openrouter.ai/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    },
+    "default_title": "Eagle 图片提示词助手"
+  },
+  "options_page": "options/options.html",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

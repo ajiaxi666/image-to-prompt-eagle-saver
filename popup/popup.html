@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eagle 助手</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <span class="logo">🦅</span>
+    <span class="title">图片提示词助手</span>
+    <button class="settings-btn" id="settingsBtn" title="设置">⚙️</button>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-item" id="eagleStatusItem">
+      <span class="dot" id="eagleDot"></span>
+      <span id="eagleLabel">Eagle</span>
+    </div>
+  </div>
+
+  <div class="folder-row">
+    <label class="row-label">Eagle 文件夹</label>
+    <select id="folderSelect" class="folder-select">
+      <option value="">— 根目录 —</option>
+    </select>
+  </div>
+
+  <div class="usage-hint">
+    💡 在网页上<b>右键图片</b> → 选择「保存到 Eagle（生成提示词）」
+  </div>
+
+  <div class="gallery-row">
+    <button class="btn btn-primary" id="galleryBtn">🖼️ 打开图库</button>
+  </div>
+
+  <div class="history-section">
+    <div class="history-header">最近保存</div>
+    <div id="historyList" class="history-list">
+      <div class="empty-hint">暂无记录</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

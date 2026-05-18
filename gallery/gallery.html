@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eagle 助手 - 图库</title>
+  <link rel="stylesheet" href="gallery.css">
+</head>
+<body>
+  <div class="topbar">
+    <h1><span class="logo">🦅</span>图片提示词图库</h1>
+    <div class="topbar-actions">
+      <input type="text" id="searchInput" class="search-input" placeholder="🔍 搜索描述 / 标签 / 风格…">
+      <button class="btn btn-secondary" id="exportBtn">导出 JSON</button>
+      <button class="btn btn-ghost" id="clearBtn">清空图库</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="local">📁 本地图库</button>
+    <button class="tab" data-tab="shared">🌐 共享图库</button>
+  </div>
+
+  <div id="stats" class="stats"></div>
+
+  <div id="grid" class="grid">
+    <div class="empty-hint">暂无记录。右键网页图片 → "保存到 Eagle" 即可在此浏览。</div>
+  </div>
+
+  <!-- Detail modal -->
+  <div id="modal" class="modal-overlay" style="display:none">
+    <div class="modal-card">
+      <button class="modal-close" id="modalClose">&times;</button>
+      <div class="modal-body">
+        <div class="modal-image-wrap">
+          <img id="modalImage" class="modal-image" alt="">
+        </div>
+        <div class="modal-detail">
+          <div class="modal-field">
+            <span class="field-label">描述</span>
+            <span id="modalDescription" class="field-value"></span>
+          </div>
+          <div class="modal-field">
+            <span class="field-label">Prompt (EN)</span>
+            <span id="modalPromptEN" class="field-value mono"></span>
+            <button class="copy-btn" data-target="modalPromptEN">复制</button>
+          </div>
+          <div class="modal-field">
+            <span class="field-label">提示词 (中文)</span>
+            <span id="modalPromptZH" class="field-value"></span>
+            <button class="copy-btn" data-target="modalPromptZH">复制</button>
+          </div>
+          <div class="modal-field">
+            <span class="field-label">Tags</span>
+            <span id="modalTags" class="field-value tags"></span>
+          </div>
+          <div class="modal-field">
+            <span class="field-label">风格</span>
+            <span id="modalStyle" class="field-value badge"></span>
+          </div>
+          <div class="modal-field">
+            <span class="field-label">来源</span>
+            <a id="modalSource" class="field-value link" href="#" target="_blank"></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="gallery.js"></script>
+</body>
+</html>
