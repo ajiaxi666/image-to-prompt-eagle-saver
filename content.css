@@ -1,0 +1,112 @@
+/* ---- Hover Button ---- */
+#eps-hover-btn {
+  display: none;
+  position: fixed;
+  z-index: 2147483646;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(99,102,241,0.92);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  transition: transform 0.15s;
+  pointer-events: auto;
+}
+#eps-hover-btn:hover { transform: scale(1.1); }
+
+/* ---- Panel ---- */
+#eps-panel {
+  position: fixed; top: 0; right: 0; z-index: 2147483647;
+  width: 420px; height: 100vh;
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.16,1,0.3,1);
+  pointer-events: none;
+}
+#eps-panel.eps-open { transform: translateX(0); pointer-events: auto; }
+
+.eps-shell {
+  height: 100%; overflow-y: auto;
+  background: rgba(18,18,22,0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #e4e4e7;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+
+.eps-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.eps-header strong { font-size: 15px; }
+
+.eps-icon-btn {
+  background: none; border: none; color: #a1a1aa; font-size: 18px; cursor: pointer; padding: 0 4px;
+}
+.eps-icon-btn:hover { color: #fff; }
+
+.eps-close {
+  background: none; border: none; color: #a1a1aa; font-size: 22px; cursor: pointer; line-height: 1;
+}
+.eps-close:hover { color: #fff; }
+
+.eps-row { display: flex; gap: 10px; align-items: flex-start; }
+.eps-preview {
+  width: 72px; height: 72px; border-radius: 8px; overflow: hidden;
+  background: rgba(255,255,255,0.06); flex-shrink: 0;
+}
+.eps-preview img { width: 100%; height: 100%; object-fit: cover; }
+.eps-img-info { flex: 1; min-width: 0; }
+.eps-img-info strong { display: block; font-size: 13px; margin-bottom: 2px; }
+.eps-img-info span { display: block; font-size: 11px; color: #71717a; word-break: break-all; }
+
+.eps-section { display: flex; flex-direction: column; gap: 8px; }
+.eps-section-head { display: flex; align-items: center; justify-content: space-between; }
+.eps-section-head strong { font-size: 13px; color: #a1a1aa; }
+
+.eps-chips { display: flex; gap: 4px; }
+.eps-chip {
+  padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12);
+  background: transparent; color: #a1a1aa; font-size: 11px; cursor: pointer;
+  transition: all 0.15s;
+}
+.eps-chip:hover { border-color: rgba(255,255,255,0.3); color: #fff; }
+.eps-chip.active { background: rgba(99,102,241,0.2); border-color: #6366f1; color: #818cf8; }
+
+.eps-textarea {
+  width: 100%; min-height: 180px; padding: 12px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04);
+  color: #e4e4e7; font-size: 13px; line-height: 1.7; resize: vertical;
+  font-family: inherit; outline: none;
+}
+.eps-textarea:focus { border-color: rgba(99,102,241,0.4); }
+
+.eps-meta { display: flex; justify-content: space-between; font-size: 11px; color: #71717a; }
+#eps-status[data-tone="success"] { color: #34d399; }
+#eps-status[data-tone="error"] { color: #f87171; }
+#eps-status[data-tone="working"] { color: #fbbf24; }
+
+.eps-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.eps-btn {
+  flex: 1; padding: 10px 0; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.06); color: #e4e4e7; font-size: 13px;
+  cursor: pointer; transition: all 0.15s; font-family: inherit; text-align: center;
+}
+.eps-btn:hover { background: rgba(255,255,255,0.1); }
+.eps-btn.eps-busy { opacity: 0.5; pointer-events: none; }
+
+.eps-btn-copy { flex: 0 0 auto; min-width: 90px; }
+.eps-btn-save { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3); color: #a5b4fc; }
+.eps-btn-save:hover { background: rgba(99,102,241,0.25); }
+
+.eps-save-row { display: flex; gap: 8px; }
+
+@media (max-width: 480px) {
+  #eps-panel { width: 100vw; }
+}

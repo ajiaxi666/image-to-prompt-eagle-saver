@@ -581,6 +581,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     fetchModels(msg.provider).then(sendResponse);
     return true;
   }
+  if (msg.type === 'ANALYZE_IMAGE') {
+    handleAnalyzeImage(msg.imageUrl, msg.pageUrl).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'SAVE_TO_EAGLE') {
+    handleEagleSave(msg.imageUrl, msg.pageUrl, msg.analysis);
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (msg.type === 'SAVE_TO_FEISHU') {
+    saveToFeishuIfEnabled(msg.imageUrl, msg.pageUrl, msg.analysis)
+      .then(() => sendResponse({ ok: true }))
+      .catch(e => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
+  if (msg.type === 'OPEN_OPTIONS') {
+    chrome.runtime.openOptionsPage();
+    sendResponse({ ok: true });
+    return false;
+  }
   if (msg.type === 'TEST_FEISHU') {
     testFeishu(msg).then(sendResponse);
     return true;
@@ -745,6 +765,32 @@ async function listFeishuRecords({ pageToken }) {
     const token = await getTenantAccessToken(config.feishuAppId, config.feishuAppSecret);
     const result = await listRecords(config.feishuAppToken, config.feishuTableId, token, pageToken);
     return { ok: true, ...result };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function handleAnalyzeImage(imageUrl, pageUrl) {
+  try {
+    const provider = await getActiveProvider();
+    if (!provider?.apiKey) return { ok: false, error: '请先配置 AI 提供商和 API Key' };
+    const template = await getActiveTemplate();
+    let analysis;
+    try {
+      analysis = await analyzeImage(imageUrl, provider, template);
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+    return {
+      ok: true,
+      shortEN: (analysis.tags || []).join(', ') || analysis.prompt_en || '',
+      shortZH: (analysis.tags_zh || []).join('，') || analysis.prompt_zh || '',
+      fullEN: analysis.prompt_en || '',
+      fullZH: analysis.prompt_zh || '',
+      style: analysis.style || '',
+      tags: analysis.tags || [],
+      description: analysis.description || '',
+    };
   } catch (err) {
     return { ok: false, error: err.message };
   }
