@@ -1,5 +1,6 @@
 const imageCache = new Map();
 let currentImage = null;
+let contextImageInfo = null;
 let panelData = { shortEN: '', shortZH: '', fullEN: '', fullZH: '', style: '', tags: [], description: '' };
 let detail = 'full';
 let lang = 'zh';
@@ -68,7 +69,7 @@ document.documentElement.append(hoverBtn, panel);
 // ---- Events ----
 document.addEventListener('pointermove', e => {
   if (panel.classList.contains('eps-open')) return;
-  const img = e.target.closest('img, picture');
+  const img = getImageElement(e.target);
   if (!img) { hideHover(); return; }
   const src = img.currentSrc || img.src;
   const rect = img.getBoundingClientRect();
@@ -77,6 +78,26 @@ document.addEventListener('pointermove', e => {
   hoverBtn.style.display = 'flex';
   hoverBtn.style.top = Math.max(4, rect.top + 4) + 'px';
   hoverBtn.style.left = Math.max(4, rect.left + 4) + 'px';
+});
+
+document.addEventListener('contextmenu', e => {
+  contextImageInfo = getImageInfoFromTarget(e.target);
+  if (contextImageInfo?.element) currentImage = contextImageInfo.element;
+}, true);
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type !== 'GET_CONTEXT_IMAGE') return;
+  const info = contextImageInfo;
+  if (!info?.imageUrl) {
+    sendResponse({ ok: false });
+    return false;
+  }
+  sendResponse({
+    ok: true,
+    imageUrl: info.imageUrl,
+    pageUrl: location.href,
+  });
+  return false;
 });
 
 document.addEventListener('scroll', () => { if (currentImage) hideHover(); }, true);
@@ -120,6 +141,61 @@ document.getElementById('eps-prompt-text').addEventListener('input', () => {
 });
 
 // ---- Functions ----
+function getImageElement(target) {
+  const el = getElement(target);
+  if (!el?.closest) return null;
+  const img = el.closest('img');
+  if (img) return img;
+  const picture = el.closest('picture');
+  return picture?.querySelector('img') || null;
+}
+
+function getImageInfoFromElement(img) {
+  const src = img?.currentSrc || img?.src || '';
+  if (!src) return null;
+  return {
+    imageUrl: normalizeImageUrl(src),
+    element: img,
+  };
+}
+
+function getImageInfoFromTarget(target) {
+  const img = getImageElement(target);
+  const imgInfo = getImageInfoFromElement(img);
+  if (imgInfo) return imgInfo;
+
+  const bgUrl = getBackgroundImageUrl(getElement(target));
+  if (!bgUrl) return null;
+  return {
+    imageUrl: normalizeImageUrl(bgUrl),
+    element: null,
+  };
+}
+
+function getElement(target) {
+  if (!target) return null;
+  return target.nodeType === Node.ELEMENT_NODE ? target : target.parentElement;
+}
+
+function getBackgroundImageUrl(startEl) {
+  let el = startEl;
+  while (el && el !== document.documentElement) {
+    const bg = getComputedStyle(el).backgroundImage;
+    const match = bg && bg.match(/url\((['"]?)(.*?)\1\)/);
+    if (match?.[2]) return match[2];
+    el = el.parentElement;
+  }
+  return '';
+}
+
+function normalizeImageUrl(url) {
+  try {
+    return new URL(url, location.href).href;
+  } catch {
+    return url;
+  }
+}
+
 async function openPanel(img) {
   hideHover();
   panel.classList.add('eps-open');

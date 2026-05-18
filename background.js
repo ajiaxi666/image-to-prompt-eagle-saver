@@ -3,6 +3,7 @@ import { getActiveTemplate, getTemplate } from './prompt-templates.js';
 
 const EAGLE_BASE = 'http://localhost:41595/api';
 const EAGLE_TOKEN_KEY = 'eagleApiToken';
+const MENU_ID = 'save-to-eagle';
 
 async function getEagleToken() {
   const { [EAGLE_TOKEN_KEY]: token } = await chrome.storage.local.get(EAGLE_TOKEN_KEY);
@@ -16,19 +17,38 @@ async function eagleFetch(url, options = {}) {
   return fetch(fullUrl, options);
 }
 
-// Register context menu at top level (runs on every service worker start, not just install)
-chrome.contextMenus.removeAll(() => {
-  chrome.contextMenus.create({
-    id: 'save-to-eagle',
-    title: '保存到 Eagle（生成提示词）',
-    contexts: ['image'],
+function registerContextMenus() {
+  chrome.contextMenus.removeAll(() => {
+    if (chrome.runtime.lastError) {
+      console.warn('Failed to clear context menus:', chrome.runtime.lastError.message);
+    }
+    chrome.contextMenus.create({
+      id: MENU_ID,
+      title: '保存到 Eagle（生成提示词）',
+      // Some sites render images as CSS backgrounds or intercept image context.
+      // Showing the menu on all page contexts lets the content script provide a fallback image URL.
+      contexts: ['all'],
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('Failed to create context menu:', chrome.runtime.lastError.message);
+      }
+    });
   });
-});
+}
+
+registerContextMenus();
+chrome.runtime.onInstalled.addListener(registerContextMenus);
+chrome.runtime.onStartup.addListener(registerContextMenus);
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  const imageUrl = info.srcUrl;
-  const pageUrl = info.pageUrl || tab?.url || '';
-  if (!imageUrl) return;
+  if (info.menuItemId !== MENU_ID) return;
+  const contextImage = info.srcUrl ? null : await getContextImageFromTab(tab);
+  const imageUrl = info.srcUrl || contextImage?.imageUrl || '';
+  const pageUrl = info.pageUrl || contextImage?.pageUrl || tab?.url || '';
+  if (!imageUrl) {
+    notifyError('未找到图片，请在网页图片或背景图上右键后再试');
+    return;
+  }
 
   const provider = await getActiveProvider();
   if (!provider || !provider.apiKey) {
@@ -55,6 +75,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   await handleEagleSave(imageUrl, pageUrl, analysisResult);
 });
+
+async function getContextImageFromTab(tab) {
+  if (!tab?.id) return null;
+  try {
+    const res = await chrome.tabs.sendMessage(tab.id, { type: 'GET_CONTEXT_IMAGE' });
+    return res?.ok ? res : null;
+  } catch {
+    return null;
+  }
+}
 
 async function getActiveProvider() {
   const [sync, local] = await Promise.all([
