@@ -10,7 +10,7 @@ export const BUILTIN_PROVIDERS = [
     name: 'Claude (Anthropic 官方)',
     type: PROVIDER_TYPES.CLAUDE,
     baseUrl: 'https://api.anthropic.com/v1',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-4-20250514',
     supportsVision: true,
     builtin: true,
   },
@@ -69,5 +69,5 @@ export const BUILTIN_PROVIDERS = [
 // Heuristic to guess vision support from model name
 export function guessVisionSupport(model) {
   if (!model) return false;
-  return /vision|vl|gemini|claude|gpt-4|gpt-4o|sonnet|opus|haiku|llava|qwen|cogvlm|glm-4v|pixtral|llama.*vision/i.test(model);
+  return /vision|vl|gemini|claude|gpt-5|gpt-4|gpt-4o|sonnet|opus|haiku|llava|qwen|cogvlm|glm-4v|pixtral|llama.*vision/i.test(model);
 }

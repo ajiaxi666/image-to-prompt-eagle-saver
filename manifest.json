@@ -18,6 +18,7 @@
     "scripting"
   ],
   "host_permissions": [
+    "<all_urls>",
     "http://localhost:41595/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",

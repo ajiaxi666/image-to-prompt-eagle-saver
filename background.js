@@ -105,8 +105,7 @@ async function analyzeImage(imageUrl, provider, template) {
   await ensureHostPermission(provider.baseUrl);
 
   // Check if main provider supports vision
-  const hasVision = provider.supportsVision !== false || guessVisionSupport(provider.model);
-  if (hasVision) {
+  if (providerSupportsVision(provider)) {
     if (provider.type === PROVIDER_TYPES.CLAUDE) {
       return analyzeWithClaude(imageUrl, provider, template);
     }
@@ -122,7 +121,12 @@ async function analyzeImage(imageUrl, provider, template) {
   return analyzeWithTextOnly(captionText, imageUrl, provider, template);
 }
 
+function providerSupportsVision(provider) {
+  return provider?.supportsVision === true || guessVisionSupport(provider?.model);
+}
+
 async function analyzeWithClaude(imageUrl, provider, template) {
+  const imagePayload = await getImagePayload(imageUrl);
   const res = await fetch(`${provider.baseUrl}/messages`, {
     method: 'POST',
     headers: {
@@ -136,7 +140,7 @@ async function analyzeWithClaude(imageUrl, provider, template) {
       messages: [{
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'url', url: imageUrl } },
+          { type: 'image', source: buildClaudeImageSource(imagePayload, imageUrl) },
           { type: 'text', text: template.content },
         ],
       }],
@@ -151,6 +155,19 @@ async function analyzeWithClaude(imageUrl, provider, template) {
 }
 
 async function analyzeWithOpenAI(imageUrl, provider, template) {
+  const imagePayload = await getImagePayload(imageUrl);
+  const primaryImageUrl = imagePayload.dataUrl || imageUrl;
+  try {
+    return await analyzeWithOpenAIImageUrl(primaryImageUrl, provider, template);
+  } catch (err) {
+    if (imagePayload.dataUrl && err.providerResponse) {
+      return analyzeWithOpenAIImageUrl(imageUrl, provider, template);
+    }
+    throw err;
+  }
+}
+
+async function analyzeWithOpenAIImageUrl(imageUrl, provider, template) {
   const body = {
     model: provider.model,
     max_tokens: 1500,
@@ -165,6 +182,11 @@ async function analyzeWithOpenAI(imageUrl, provider, template) {
   if (provider.supportsJsonMode === true) {
     body.response_format = { type: 'json_object' };
   }
+  const data = await postOpenAIChat(provider, body);
+  return extractJson(data.choices?.[0]?.message?.content || '');
+}
+
+async function postOpenAIChat(provider, body) {
   const res = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -175,35 +197,95 @@ async function analyzeWithOpenAI(imageUrl, provider, template) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${res.status}`);
+    const wrapped = new Error(err.error?.message || `HTTP ${res.status}`);
+    wrapped.providerResponse = true;
+    throw wrapped;
   }
-  const data = await res.json();
-  return extractJson(data.choices?.[0]?.message?.content || '');
+  return res.json();
 }
 
 // ---- Gemini Vision ----
 
 async function fetchImageAsBase64(imageUrl) {
+  if (/^data:/i.test(imageUrl)) return parseDataUrl(imageUrl);
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch(imageUrl, { signal: controller.signal });
+    const res = await fetch(imageUrl, {
+      signal: controller.signal,
+      credentials: 'include',
+    });
     if (!res.ok) throw new Error(`下载图片失败：HTTP ${res.status}`);
-    const contentType = res.headers.get('content-type') || 'image/jpeg';
-    const buf = await res.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    const contentType = normalizeMimeType(res.headers.get('content-type')) || guessImageMimeType(imageUrl);
+    if (!contentType.startsWith('image/')) {
+      throw new Error(`目标不是图片资源：${contentType}`);
     }
-    return { mimeType: contentType, data: btoa(binary) };
+    const buf = await res.arrayBuffer();
+    const data = arrayBufferToBase64(buf);
+    return { mimeType: contentType, data, dataUrl: `data:${contentType};base64,${data}` };
   } finally {
     clearTimeout(timeout);
   }
 }
 
+async function getImagePayload(imageUrl, options = {}) {
+  try {
+    return await fetchImageAsBase64(imageUrl);
+  } catch (err) {
+    if (options.required) throw new Error(`读取图片失败：${err.message}`);
+    console.warn('Falling back to remote image URL:', err.message);
+    return { url: imageUrl, error: err };
+  }
+}
+
+function buildClaudeImageSource(imagePayload, imageUrl) {
+  if (imagePayload?.data) {
+    return {
+      type: 'base64',
+      media_type: imagePayload.mimeType || 'image/jpeg',
+      data: imagePayload.data,
+    };
+  }
+  return { type: 'url', url: imagePayload?.url || imageUrl };
+}
+
+function parseDataUrl(dataUrl) {
+  const match = dataUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/i);
+  if (!match) throw new Error('无效的 data URL 图片');
+  const mimeType = normalizeMimeType(match[1]) || 'image/jpeg';
+  const rawData = match[3] || '';
+  const data = match[2]
+    ? rawData.replace(/\s/g, '')
+    : btoa(decodeURIComponent(rawData).replace(/\+/g, ' '));
+  return { mimeType, data, dataUrl: `data:${mimeType};base64,${data}` };
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function normalizeMimeType(value) {
+  return (value || '').split(';')[0].trim().toLowerCase();
+}
+
+function guessImageMimeType(url) {
+  const path = String(url || '').split('?')[0].toLowerCase();
+  if (path.endsWith('.png')) return 'image/png';
+  if (path.endsWith('.webp')) return 'image/webp';
+  if (path.endsWith('.gif')) return 'image/gif';
+  if (path.endsWith('.avif')) return 'image/avif';
+  return 'image/jpeg';
+}
+
 async function analyzeWithGemini(imageUrl, provider, template) {
-  const { mimeType, data } = await fetchImageAsBase64(imageUrl);
+  const { mimeType, data } = await getImagePayload(imageUrl, { required: true });
   const body = {
     contents: [{
       parts: [
@@ -253,7 +335,7 @@ async function getCaptionProvider() {
   let cp = all.find(p => p.id === settings.captionProviderId);
   if (!cp) {
     // Fallback: find first vision-capable built-in provider with a stored key
-    cp = all.find(p => p.supportsVision !== false && (local.providerKeys || {})[p.id]);
+    cp = all.find(p => providerSupportsVision(p) && (local.providerKeys || {})[p.id]);
   }
   if (!cp) throw new Error('未配置 Caption 提供商，请在设置中选择一个有 Vision 能力的提供商');
   const apiKey = (local.providerKeys || {})[cp.id];
@@ -276,6 +358,7 @@ async function getImageCaption(imageUrl) {
   const captionPrompt = 'Describe this image in detail. Include: subject, composition, lighting, colors, style, mood. Write 2-4 sentences in natural English. Do NOT use markdown or JSON.';
 
   if (cp.type === PROVIDER_TYPES.CLAUDE) {
+    const imagePayload = await getImagePayload(imageUrl);
     const res = await fetch(`${cp.baseUrl}/messages`, {
       method: 'POST',
       headers: {
@@ -289,7 +372,7 @@ async function getImageCaption(imageUrl) {
         messages: [{
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'url', url: imageUrl } },
+            { type: 'image', source: buildClaudeImageSource(imagePayload, imageUrl) },
             { type: 'text', text: captionPrompt },
           ],
         }],
@@ -301,7 +384,7 @@ async function getImageCaption(imageUrl) {
   }
 
   if (cp.type === PROVIDER_TYPES.GEMINI) {
-    const { mimeType, data: imgData } = await fetchImageAsBase64(imageUrl);
+    const { mimeType, data: imgData } = await getImagePayload(imageUrl, { required: true });
     const res = await fetch(`${cp.baseUrl}/models/${cp.model}:generateContent?key=${encodeURIComponent(cp.apiKey)}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -317,27 +400,30 @@ async function getImageCaption(imageUrl) {
   }
 
   // OpenAI-compatible caption
-  const res = await fetch(`${cp.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${cp.apiKey}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: cp.model,
-      max_tokens: 400,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: imageUrl } },
-          { type: 'text', text: captionPrompt },
-        ],
-      }],
-    }),
-  });
-  if (!res.ok) throw new Error(`Caption 提供商请求失败：HTTP ${res.status}`);
-  const data = await res.json();
+  const imagePayload = await getImagePayload(imageUrl);
+  const primaryImageUrl = imagePayload.dataUrl || imageUrl;
+  let data;
+  try {
+    data = await postOpenAIChat(cp, buildCaptionOpenAIBody(primaryImageUrl, cp, captionPrompt));
+  } catch (err) {
+    if (!imagePayload.dataUrl || !err.providerResponse) throw err;
+    data = await postOpenAIChat(cp, buildCaptionOpenAIBody(imageUrl, cp, captionPrompt));
+  }
   return data.choices?.[0]?.message?.content || '';
+}
+
+function buildCaptionOpenAIBody(imageUrl, provider, captionPrompt) {
+  return {
+    model: provider.model,
+    max_tokens: 400,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: imageUrl } },
+        { type: 'text', text: captionPrompt },
+      ],
+    }],
+  };
 }
 
 async function callExternalCaption(imageUrl, settings) {

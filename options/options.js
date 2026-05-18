@@ -19,13 +19,13 @@ async function init() {
 async function loadAll() {
   const [sync, local] = await Promise.all([
     chrome.storage.sync.get([
-      'activeProviderId', 'customProviders',
+      'activeProviderId', 'customProviders', 'providerModelOverrides',
       'activeTemplateId', 'customTemplates',
       'eagleFolderId', 'defaultTagPrefix',
       'captionMode', 'captionProviderId', 'captionExternalUrl',
       'feishuEnabled', 'feishuAppId', 'feishuAppToken', 'feishuTableId',
     ]),
-    chrome.storage.local.get(['providerKeys', 'feishuAppSecret', 'eagleApiToken']),
+    chrome.storage.local.get(['providerKeys', 'feishuAppSecret', 'eagleApiToken', 'captionExternalKey']),
   ]);
 
   state.providers = [...BUILTIN_PROVIDERS, ...(sync.customProviders || [])];
@@ -366,7 +366,7 @@ function renderCaptionProviderSelect() {
   sel.innerHTML = '';
   state.providers.forEach(p => {
     // Prefer vision-capable providers for captioning
-    const supportsV = p.supportsVision !== false && guessVisionSupport(p.model);
+    const supportsV = p.supportsVision === true || guessVisionSupport(p.model);
     const opt = document.createElement('option');
     opt.value = p.id;
     opt.textContent = `${p.name} (${p.model})${supportsV ? ' 👁' : ''}`;
