@@ -1,4 +1,6 @@
 async function init() {
+  chrome.runtime.sendMessage({ type: 'REGISTER_CONTEXT_MENUS' }).catch(() => {});
+
   document.getElementById('settingsBtn').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });

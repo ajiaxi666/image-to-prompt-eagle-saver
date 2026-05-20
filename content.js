@@ -86,18 +86,30 @@ document.addEventListener('contextmenu', e => {
 }, true);
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.type !== 'GET_CONTEXT_IMAGE') return;
-  const info = contextImageInfo;
-  if (!info?.imageUrl) {
-    sendResponse({ ok: false });
+  if (msg.type === 'GET_CONTEXT_IMAGE') {
+    const info = contextImageInfo;
+    if (!info?.imageUrl) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    sendResponse({
+      ok: true,
+      imageUrl: info.imageUrl,
+      pageUrl: location.href,
+    });
     return false;
   }
-  sendResponse({
-    ok: true,
-    imageUrl: info.imageUrl,
-    pageUrl: location.href,
-  });
-  return false;
+  if (msg.type === 'OPEN_EPS_PANEL') {
+    const info = contextImageInfo?.imageUrl === msg.imageUrl
+      ? contextImageInfo
+      : { imageUrl: msg.imageUrl, element: null, alt: '网页图片' };
+    openPanelFromInfo(info, { autoAnalyze: !!msg.autoAnalyze }).then(() => {
+      sendResponse({ ok: true });
+    }).catch(err => {
+      sendResponse({ ok: false, error: err.message });
+    });
+    return true;
+  }
 });
 
 document.addEventListener('scroll', () => { if (currentImage) hideHover(); }, true);
@@ -156,6 +168,7 @@ function getImageInfoFromElement(img) {
   return {
     imageUrl: normalizeImageUrl(src),
     element: img,
+    alt: img.alt?.trim() || img.getAttribute('aria-label') || '',
   };
 }
 
@@ -169,6 +182,7 @@ function getImageInfoFromTarget(target) {
   return {
     imageUrl: normalizeImageUrl(bgUrl),
     element: null,
+    alt: getElement(target)?.getAttribute?.('aria-label') || getElement(target)?.textContent?.trim()?.slice(0, 40) || '网页背景图',
   };
 }
 
@@ -197,11 +211,18 @@ function normalizeImageUrl(url) {
 }
 
 async function openPanel(img) {
+  const info = getImageInfoFromElement(img);
+  if (!info) return;
+  return openPanelFromInfo(info);
+}
+
+async function openPanelFromInfo(info, options = {}) {
   hideHover();
   panel.classList.add('eps-open');
-  const src = img.currentSrc || img.src;
+  currentImage = info.element || null;
+  const src = info.imageUrl;
   document.getElementById('eps-preview-img').src = src;
-  document.getElementById('eps-img-name').textContent = img.alt?.trim() || '网页图片';
+  document.getElementById('eps-img-name').textContent = info.alt || '网页图片';
   document.getElementById('eps-img-url').textContent = src.length > 50 ? src.slice(0, 47) + '…' : src;
   document.getElementById('eps-save-row').style.display = 'none';
 
@@ -211,6 +232,9 @@ async function openPanel(img) {
   detail = 'full'; lang = 'zh';
   syncUI();
   setStatus('就绪');
+  if (options.autoAnalyze) {
+    runAnalysis();
+  }
 }
 
 async function runAnalysis() {
@@ -220,7 +244,7 @@ async function runAnalysis() {
   document.getElementById('eps-analyze').classList.add('eps-busy');
   try {
     const src = currentImage?.currentSrc || currentImage?.src || document.getElementById('eps-preview-img').src;
-    const res = await chrome.runtime.sendMessage({ type: 'ANALYZE_IMAGE', imageUrl: src, pageUrl: location.href });
+    const res = await sendRuntimeMessage({ type: 'ANALYZE_IMAGE', imageUrl: src, pageUrl: location.href }, 70000);
     if (!res?.ok) throw new Error(res?.error || '分析失败');
     panelData = {
       shortEN: res.shortEN || '',
@@ -242,6 +266,15 @@ async function runAnalysis() {
     document.getElementById('eps-analyze').classList.remove('eps-busy');
     syncUI();
   }
+}
+
+function sendRuntimeMessage(message, timeoutMs = 45000) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`后台没有响应（${Math.round(timeoutMs / 1000)} 秒超时）`)), timeoutMs);
+  });
+  return Promise.race([chrome.runtime.sendMessage(message), timeout])
+    .finally(() => clearTimeout(timeoutId));
 }
 
 function switchDetail(d) {

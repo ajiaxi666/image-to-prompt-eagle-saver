@@ -13,6 +13,7 @@ const state = {
 async function init() {
   await loadAll();
   bindEvents();
+  chrome.runtime.sendMessage({ type: 'REGISTER_CONTEXT_MENUS' }).catch(() => {});
   await loadEagleFolders();
 }
 
@@ -184,7 +185,7 @@ async function testProvider() {
   if (!provider.apiKey) { setStatus('providerStatus', 'err', '请先填写 API Key'); return; }
   setStatus('providerStatus', 'checking', '测试中…');
   try {
-    const res = await chrome.runtime.sendMessage({ type: 'TEST_PROVIDER', provider });
+    const res = await sendRuntimeMessage({ type: 'TEST_PROVIDER', provider }, 25000);
     if (res.ok) setStatus('providerStatus', 'ok', '连接成功');
     else setStatus('providerStatus', 'err', '失败：' + (res.error || '未知错误'));
   } catch (err) {
@@ -198,7 +199,7 @@ async function fetchModels() {
   hideModelList();
   setStatus('modelListStatus', 'checking', '拉取中…');
   try {
-    const res = await chrome.runtime.sendMessage({ type: 'FETCH_MODELS', provider });
+    const res = await sendRuntimeMessage({ type: 'FETCH_MODELS', provider }, 25000);
     if (!res.ok) { setStatus('modelListStatus', 'err', res.error); return; }
     const models = res.models || [];
     if (!models.length) { setStatus('modelListStatus', 'err', '未找到可用模型'); return; }
@@ -208,8 +209,17 @@ async function fetchModels() {
   }
 }
 
+function sendRuntimeMessage(message, timeoutMs = 45000) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`后台没有响应（${Math.round(timeoutMs / 1000)} 秒超时）`)), timeoutMs);
+  });
+  return Promise.race([chrome.runtime.sendMessage(message), timeout])
+    .finally(() => clearTimeout(timeoutId));
+}
+
 // Known vision-capable model name patterns (case-insensitive partial match)
-const VISION_PATTERNS = /vision|vl|gemini|claude|gpt-4|gpt-4o|sonnet|opus|haiku|llava|qwen|cogvlm|glm-4v|pixtral|llama.*vision/i;
+const VISION_PATTERNS = /vision|vl|gemini|claude|gpt-5|gpt-4|gpt-4o|sonnet|opus|haiku|llava|qwen|cogvlm|glm-4v|pixtral|llama.*vision/i;
 
 function renderModelList(models) {
   const sel = document.getElementById('modelList');
@@ -476,6 +486,7 @@ async function resetAll() {
 
 function setStatus(id, state, msg) {
   const el = document.getElementById(id);
+  el.style.display = '';
   el.innerHTML = '';
   const badge = document.createElement('div');
   badge.className = `status-badge ${state}`;

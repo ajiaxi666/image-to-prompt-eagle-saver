@@ -3,7 +3,12 @@ import { getActiveTemplate, getTemplate } from './prompt-templates.js';
 
 const EAGLE_BASE = 'http://localhost:41595/api';
 const EAGLE_TOKEN_KEY = 'eagleApiToken';
-const MENU_ID = 'save-to-eagle';
+const MENU_ROOT_ID = 'eps-menu-root';
+const MENU_ANALYZE_ID = 'eps-analyze-image';
+const MENU_SAVE_ID = 'save-to-eagle';
+const REQUEST_TIMEOUT_MS = 30000;
+const MODEL_TIMEOUT_MS = 15000;
+const IMAGE_FETCH_TIMEOUT_MS = 20000;
 
 async function getEagleToken() {
   const { [EAGLE_TOKEN_KEY]: token } = await chrome.storage.local.get(EAGLE_TOKEN_KEY);
@@ -23,15 +28,28 @@ function registerContextMenus() {
       console.warn('Failed to clear context menus:', chrome.runtime.lastError.message);
     }
     chrome.contextMenus.create({
-      id: MENU_ID,
-      title: '保存到 Eagle（生成提示词）',
+      id: MENU_ROOT_ID,
+      title: 'Eagle 提示词助手',
       // Some sites render images as CSS backgrounds or intercept image context.
       // Showing the menu on all page contexts lets the content script provide a fallback image URL.
       contexts: ['all'],
     }, () => {
       if (chrome.runtime.lastError) {
-        console.warn('Failed to create context menu:', chrome.runtime.lastError.message);
+        console.warn('Failed to create root context menu:', chrome.runtime.lastError.message);
+        return;
       }
+      chrome.contextMenus.create({
+        id: MENU_ANALYZE_ID,
+        parentId: MENU_ROOT_ID,
+        title: '识别图片提示词',
+        contexts: ['all'],
+      });
+      chrome.contextMenus.create({
+        id: MENU_SAVE_ID,
+        parentId: MENU_ROOT_ID,
+        title: chrome.i18n?.getMessage('menuSaveEagle') || '保存到 Eagle（生成提示词）',
+        contexts: ['all'],
+      });
     });
   });
 }
@@ -41,12 +59,15 @@ chrome.runtime.onInstalled.addListener(registerContextMenus);
 chrome.runtime.onStartup.addListener(registerContextMenus);
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== MENU_ID) return;
-  const contextImage = info.srcUrl ? null : await getContextImageFromTab(tab);
-  const imageUrl = info.srcUrl || contextImage?.imageUrl || '';
-  const pageUrl = info.pageUrl || contextImage?.pageUrl || tab?.url || '';
+  if (![MENU_ANALYZE_ID, MENU_SAVE_ID].includes(info.menuItemId)) return;
+  const { imageUrl, pageUrl } = await getClickedImageInfo(info, tab);
   if (!imageUrl) {
     notifyError('未找到图片，请在网页图片或背景图上右键后再试');
+    return;
+  }
+
+  if (info.menuItemId === MENU_ANALYZE_ID) {
+    await openAnalyzerPanel(tab, { imageUrl, pageUrl });
     return;
   }
 
@@ -75,6 +96,31 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   await handleEagleSave(imageUrl, pageUrl, analysisResult);
 });
+
+async function getClickedImageInfo(info, tab) {
+  const contextImage = info.srcUrl ? null : await getContextImageFromTab(tab);
+  return {
+    imageUrl: info.srcUrl || contextImage?.imageUrl || '',
+    pageUrl: info.pageUrl || contextImage?.pageUrl || tab?.url || '',
+  };
+}
+
+async function openAnalyzerPanel(tab, payload) {
+  if (!tab?.id) {
+    notifyError('无法打开识别面板：当前页面不可用');
+    return;
+  }
+  try {
+    await chrome.tabs.sendMessage(tab.id, {
+      type: 'OPEN_EPS_PANEL',
+      imageUrl: payload.imageUrl,
+      pageUrl: payload.pageUrl,
+      autoAnalyze: true,
+    });
+  } catch (err) {
+    notifyError(`无法打开识别面板，请刷新页面后重试：${err.message}`);
+  }
+}
 
 async function getContextImageFromTab(tab) {
   if (!tab?.id) return null;
@@ -125,9 +171,74 @@ function providerSupportsVision(provider) {
   return provider?.supportsVision === true || guessVisionSupport(provider?.model);
 }
 
+function trimTrailingSlash(value) {
+  return String(value || '').replace(/\/+$/, '');
+}
+
+function buildProviderUrl(provider, path) {
+  return `${trimTrailingSlash(provider.baseUrl)}${path}`;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      let target = String(url);
+      try { target = new URL(url).origin; } catch {}
+      throw new Error(`请求超时（${Math.round(timeoutMs / 1000)} 秒）：${target}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readJsonResponse(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`接口返回的不是 JSON：${text.slice(0, 200)}`);
+  }
+}
+
+function getApiError(data, fallback) {
+  return data?.error?.message || data?.message || fallback;
+}
+
+async function callGeminiGenerateContent(provider, body, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const res = await fetchWithTimeout(
+    buildProviderUrl(provider, `/models/${encodeURIComponent(provider.model)}:generateContent`),
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-goog-api-key': provider.apiKey,
+      },
+      body: JSON.stringify(body),
+    },
+    timeoutMs
+  );
+  const data = await readJsonResponse(res);
+  if (!res.ok) throw new Error(getApiError(data, `HTTP ${res.status}`));
+  return data;
+}
+
+function extractGeminiText(data) {
+  const parts = (data.candidates || []).flatMap(candidate => candidate.content?.parts || []);
+  const text = parts.map(part => part.text || '').filter(Boolean).join('\n').trim();
+  if (text) return text;
+  const reason = data.candidates?.[0]?.finishReason;
+  throw new Error(reason ? `Gemini 未返回文本内容（${reason}）` : 'Gemini 未返回文本内容');
+}
+
 async function analyzeWithClaude(imageUrl, provider, template) {
   const imagePayload = await getImagePayload(imageUrl);
-  const res = await fetch(`${provider.baseUrl}/messages`, {
+  const res = await fetchWithTimeout(`${provider.baseUrl}/messages`, {
     method: 'POST',
     headers: {
       'x-api-key': provider.apiKey,
@@ -146,11 +257,10 @@ async function analyzeWithClaude(imageUrl, provider, template) {
       }],
     }),
   });
+  const data = await readJsonResponse(res);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${res.status}`);
+    throw new Error(getApiError(data, `HTTP ${res.status}`));
   }
-  const data = await res.json();
   return extractJson(data.content?.[0]?.text || '');
 }
 
@@ -187,7 +297,7 @@ async function analyzeWithOpenAIImageUrl(imageUrl, provider, template) {
 }
 
 async function postOpenAIChat(provider, body) {
-  const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+  const res = await fetchWithTimeout(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${provider.apiKey}`,
@@ -195,13 +305,13 @@ async function postOpenAIChat(provider, body) {
     },
     body: JSON.stringify(body),
   });
+  const data = await readJsonResponse(res);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const wrapped = new Error(err.error?.message || `HTTP ${res.status}`);
+    const wrapped = new Error(getApiError(data, `HTTP ${res.status}`));
     wrapped.providerResponse = true;
     throw wrapped;
   }
-  return res.json();
+  return data;
 }
 
 // ---- Gemini Vision ----
@@ -209,24 +319,15 @@ async function postOpenAIChat(provider, body) {
 async function fetchImageAsBase64(imageUrl) {
   if (/^data:/i.test(imageUrl)) return parseDataUrl(imageUrl);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  try {
-    const res = await fetch(imageUrl, {
-      signal: controller.signal,
-      credentials: 'include',
-    });
-    if (!res.ok) throw new Error(`下载图片失败：HTTP ${res.status}`);
-    const contentType = normalizeMimeType(res.headers.get('content-type')) || guessImageMimeType(imageUrl);
-    if (!contentType.startsWith('image/')) {
-      throw new Error(`目标不是图片资源：${contentType}`);
-    }
-    const buf = await res.arrayBuffer();
-    const data = arrayBufferToBase64(buf);
-    return { mimeType: contentType, data, dataUrl: `data:${contentType};base64,${data}` };
-  } finally {
-    clearTimeout(timeout);
+  const res = await fetchWithTimeout(imageUrl, { credentials: 'include' }, IMAGE_FETCH_TIMEOUT_MS);
+  if (!res.ok) throw new Error(`下载图片失败：HTTP ${res.status}`);
+  const contentType = normalizeMimeType(res.headers.get('content-type')) || guessImageMimeType(imageUrl);
+  if (!contentType.startsWith('image/')) {
+    throw new Error(`目标不是图片资源：${contentType}`);
   }
+  const buf = await res.arrayBuffer();
+  const data = arrayBufferToBase64(buf);
+  return { mimeType: contentType, data, dataUrl: `data:${contentType};base64,${data}` };
 }
 
 async function getImagePayload(imageUrl, options = {}) {
@@ -290,23 +391,13 @@ async function analyzeWithGemini(imageUrl, provider, template) {
     contents: [{
       parts: [
         { text: template.content },
-        { inlineData: { mimeType, data } },
+        { inline_data: { mime_type: mimeType, data } },
       ],
     }],
-    generationConfig: { maxOutputTokens: 1500, temperature: 0.7 },
+    generationConfig: { maxOutputTokens: 1500, temperature: 0.4, responseMimeType: 'application/json' },
   };
-  const res = await fetch(`${provider.baseUrl}/models/${provider.model}:generateContent?key=${encodeURIComponent(provider.apiKey)}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    signal: AbortSignal.timeout(30000),
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${res.status}`);
-  }
-  const data = await res.json();
-  return extractJson(data.candidates?.[0]?.content?.parts?.[0]?.text || '');
+  const result = await callGeminiGenerateContent(provider, body);
+  return extractJson(extractGeminiText(result));
 }
 
 // ---- Caption Fallback Pipeline ----
@@ -359,7 +450,7 @@ async function getImageCaption(imageUrl) {
 
   if (cp.type === PROVIDER_TYPES.CLAUDE) {
     const imagePayload = await getImagePayload(imageUrl);
-    const res = await fetch(`${cp.baseUrl}/messages`, {
+    const res = await fetchWithTimeout(`${cp.baseUrl}/messages`, {
       method: 'POST',
       headers: {
         'x-api-key': cp.apiKey,
@@ -378,25 +469,18 @@ async function getImageCaption(imageUrl) {
         }],
       }),
     });
-    if (!res.ok) throw new Error(`Caption 提供商请求失败：HTTP ${res.status}`);
-    const data = await res.json();
+    const data = await readJsonResponse(res);
+    if (!res.ok) throw new Error(`Caption 提供商请求失败：${getApiError(data, `HTTP ${res.status}`)}`);
     return data.content?.[0]?.text || '';
   }
 
   if (cp.type === PROVIDER_TYPES.GEMINI) {
     const { mimeType, data: imgData } = await getImagePayload(imageUrl, { required: true });
-    const res = await fetch(`${cp.baseUrl}/models/${cp.model}:generateContent?key=${encodeURIComponent(cp.apiKey)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(30000),
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: captionPrompt }, { inlineData: { mimeType, data: imgData } }] }],
-        generationConfig: { maxOutputTokens: 400 },
-      }),
+    const data = await callGeminiGenerateContent(cp, {
+      contents: [{ parts: [{ text: captionPrompt }, { inline_data: { mime_type: mimeType, data: imgData } }] }],
+      generationConfig: { maxOutputTokens: 400 },
     });
-    if (!res.ok) throw new Error(`Caption 提供商请求失败：HTTP ${res.status}`);
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return extractGeminiText(data);
   }
 
   // OpenAI-compatible caption
@@ -431,7 +515,7 @@ async function callExternalCaption(imageUrl, settings) {
   if (settings.captionExternalKey) {
     headers['Authorization'] = `Bearer ${settings.captionExternalKey}`;
   }
-  const res = await fetch(settings.captionExternalUrl, {
+  const res = await fetchWithTimeout(settings.captionExternalUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify({ imageUrl }),
@@ -463,7 +547,7 @@ async function analyzeWithTextOnly(captionText, imageUrl, provider, template) {
   ].join('\n');
 
   if (provider.type === PROVIDER_TYPES.CLAUDE) {
-    const res = await fetch(`${provider.baseUrl}/messages`, {
+    const res = await fetchWithTimeout(`${provider.baseUrl}/messages`, {
       method: 'POST',
       headers: {
         'x-api-key': provider.apiKey,
@@ -476,27 +560,19 @@ async function analyzeWithTextOnly(captionText, imageUrl, provider, template) {
         messages: [{ role: 'user', content: textPrompt }],
       }),
     });
+    const data = await readJsonResponse(res);
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error?.message || `HTTP ${res.status}`);
+      throw new Error(getApiError(data, `HTTP ${res.status}`));
     }
-    const data = await res.json();
     return extractJson(data.content?.[0]?.text || '');
   }
 
   if (provider.type === PROVIDER_TYPES.GEMINI) {
-    const res = await fetch(`${provider.baseUrl}/models/${provider.model}:generateContent?key=${encodeURIComponent(provider.apiKey)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(30000),
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: textPrompt }] }],
-        generationConfig: { maxOutputTokens: 1500 },
-      }),
+    const data = await callGeminiGenerateContent(provider, {
+      contents: [{ parts: [{ text: textPrompt }] }],
+      generationConfig: { maxOutputTokens: 1500, responseMimeType: 'application/json' },
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    return extractJson(data.candidates?.[0]?.content?.parts?.[0]?.text || '');
+    return extractJson(extractGeminiText(data));
   }
 
   // OpenAI-compatible
@@ -508,7 +584,7 @@ async function analyzeWithTextOnly(captionText, imageUrl, provider, template) {
   if (provider.supportsJsonMode === true) {
     body.response_format = { type: 'json_object' };
   }
-  const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+  const res = await fetchWithTimeout(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${provider.apiKey}`,
@@ -516,11 +592,10 @@ async function analyzeWithTextOnly(captionText, imageUrl, provider, template) {
     },
     body: JSON.stringify(body),
   });
+  const data = await readJsonResponse(res);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${res.status}`);
+    throw new Error(getApiError(data, `HTTP ${res.status}`));
   }
-  const data = await res.json();
   return extractJson(data.choices?.[0]?.message?.content || '');
 }
 
@@ -580,8 +655,9 @@ async function ensureHostPermission(baseUrl) {
   } catch {
     throw new Error(`无效的 Base URL: ${baseUrl}`);
   }
-  const granted = await chrome.permissions.contains({ origins: [origin] });
-  if (granted) return;
+  const granted = await chrome.permissions.contains({ origins: [origin] }).catch(() => false);
+  const allUrlsGranted = await chrome.permissions.contains({ origins: ['<all_urls>'] }).catch(() => false);
+  if (granted || allUrlsGranted) return;
   let ok;
   try {
     ok = await chrome.permissions.request({ origins: [origin] });
@@ -594,8 +670,9 @@ async function ensureHostPermission(baseUrl) {
 async function handleEagleSave(imageUrl, pageUrl, analysis) {
   const eagleRunning = await checkEagle();
   if (!eagleRunning) {
-    notifyError('Eagle 未运行，请先打开 Eagle 应用');
-    return;
+    const error = 'Eagle 未运行，请先打开 Eagle 应用';
+    notifyError(error);
+    return { ok: false, error };
   }
 
   const settings = await chrome.storage.sync.get(['eagleFolderId', 'defaultTagPrefix']);
@@ -632,8 +709,10 @@ async function handleEagleSave(imageUrl, pageUrl, analysis) {
 
     // Also save to Feishu shared library if configured
     saveToFeishuIfEnabled(imageUrl, pageUrl, analysis).catch(() => {});
+    return { ok: true };
   } catch (err) {
     notifyError('保存到 Eagle 失败：' + err.message);
+    return { ok: false, error: err.message };
   }
 }
 
@@ -678,69 +757,60 @@ function notifyError(msg) {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.type === 'CHECK_EAGLE') {
-    checkEagle().then(sendResponse);
-    return true;
-  }
-  if (msg.type === 'GET_EAGLE_FOLDERS') {
-    eagleFetch(`${EAGLE_BASE}/folder/list`)
-      .then(r => r.json())
-      .then(d => sendResponse({ ok: true, folders: d.data || [] }))
-      .catch(e => sendResponse({ ok: false, error: e.message }));
-    return true;
-  }
-  if (msg.type === 'TEST_PROVIDER') {
-    testProvider(msg.provider).then(sendResponse);
-    return true;
-  }
-  if (msg.type === 'FETCH_MODELS') {
-    fetchModels(msg.provider).then(sendResponse);
-    return true;
-  }
-  if (msg.type === 'ANALYZE_IMAGE') {
-    handleAnalyzeImage(msg.imageUrl, msg.pageUrl).then(sendResponse);
-    return true;
-  }
-  if (msg.type === 'SAVE_LOCAL') {
-    saveToHistory({ imageUrl: msg.imageUrl, pageUrl: msg.pageUrl, analysis: msg.analysis, target: 'local' });
-    sendResponse({ ok: true });
-    return false;
-  }
-  if (msg.type === 'SAVE_TO_EAGLE') {
-    handleEagleSave(msg.imageUrl, msg.pageUrl, msg.analysis);
-    sendResponse({ ok: true });
-    return false;
-  }
-  if (msg.type === 'SAVE_TO_FEISHU') {
-    saveToFeishuIfEnabled(msg.imageUrl, msg.pageUrl, msg.analysis)
-      .then(() => sendResponse({ ok: true }))
-      .catch(e => sendResponse({ ok: false, error: e.message }));
-    return true;
-  }
-  if (msg.type === 'OPEN_OPTIONS') {
-    chrome.runtime.openOptionsPage();
-    sendResponse({ ok: true });
-    return false;
-  }
-  if (msg.type === 'TEST_FEISHU') {
-    testFeishu(msg).then(sendResponse);
-    return true;
-  }
-  if (msg.type === 'LIST_FEISHU_RECORDS') {
-    listFeishuRecords(msg).then(sendResponse);
-    return true;
-  }
-  if (msg.type === 'PREVIEW_PROMPT') {
-    previewPrompt(msg.imageUrl, msg.templateId).then(sendResponse);
-    return true;
-  }
+  handleRuntimeMessage(msg)
+    .then(sendResponse)
+    .catch(err => {
+      console.error('[Eagle Prompt Saver]', err);
+      sendResponse({ ok: false, error: err.message || '未知错误' });
+    });
+  return true;
 });
+
+async function handleRuntimeMessage(msg) {
+  switch (msg.type) {
+    case 'CHECK_EAGLE':
+      return checkEagle();
+    case 'GET_EAGLE_FOLDERS': {
+      const res = await eagleFetch(`${EAGLE_BASE}/folder/list`);
+      const data = await readJsonResponse(res);
+      return { ok: true, folders: data.data || [] };
+    }
+    case 'TEST_PROVIDER':
+      return testProvider(msg.provider);
+    case 'FETCH_MODELS':
+      return fetchModels(msg.provider);
+    case 'ANALYZE_IMAGE':
+      return handleAnalyzeImage(msg.imageUrl, msg.pageUrl);
+    case 'SAVE_LOCAL':
+      saveToHistory({ imageUrl: msg.imageUrl, pageUrl: msg.pageUrl, analysis: msg.analysis, target: 'local' });
+      return { ok: true };
+    case 'SAVE_TO_EAGLE':
+      return handleEagleSave(msg.imageUrl, msg.pageUrl, msg.analysis);
+    case 'SAVE_TO_FEISHU':
+      await saveToFeishuIfEnabled(msg.imageUrl, msg.pageUrl, msg.analysis);
+      return { ok: true };
+    case 'OPEN_OPTIONS':
+      chrome.runtime.openOptionsPage();
+      return { ok: true };
+    case 'TEST_FEISHU':
+      return testFeishu(msg);
+    case 'LIST_FEISHU_RECORDS':
+      return listFeishuRecords(msg);
+    case 'PREVIEW_PROMPT':
+      return previewPrompt(msg.imageUrl, msg.templateId);
+    case 'REGISTER_CONTEXT_MENUS':
+      registerContextMenus();
+      return { ok: true };
+    default:
+      return { ok: false, error: `未知消息类型：${msg.type}` };
+  }
+}
 
 async function testProvider(provider) {
   try {
     await ensureHostPermission(provider.baseUrl);
     if (provider.type === PROVIDER_TYPES.CLAUDE) {
-      const res = await fetch(`${provider.baseUrl}/messages`, {
+      const res = await fetchWithTimeout(`${provider.baseUrl}/messages`, {
         method: 'POST',
         headers: {
           'x-api-key': provider.apiKey,
@@ -752,26 +822,19 @@ async function testProvider(provider) {
           max_tokens: 10,
           messages: [{ role: 'user', content: 'hi' }],
         }),
-      });
-      const data = await res.json();
-      if (data.error) return { ok: false, error: data.error.message };
+      }, MODEL_TIMEOUT_MS);
+      const data = await readJsonResponse(res);
+      if (!res.ok || data.error) return { ok: false, error: getApiError(data, `HTTP ${res.status}`) };
       return { ok: true };
     }
     if (provider.type === PROVIDER_TYPES.GEMINI) {
-      const res = await fetch(`${provider.baseUrl}/models/${provider.model}:generateContent?key=${encodeURIComponent(provider.apiKey)}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        signal: AbortSignal.timeout(10000),
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'hi' }] }],
-          generationConfig: { maxOutputTokens: 10 },
-        }),
-      });
-      const data = await res.json();
-      if (data.error) return { ok: false, error: data.error.message };
+      await callGeminiGenerateContent(provider, {
+        contents: [{ parts: [{ text: 'hi' }] }],
+        generationConfig: { maxOutputTokens: 10 },
+      }, MODEL_TIMEOUT_MS);
       return { ok: true };
     }
-    const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+    const res = await fetchWithTimeout(`${provider.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${provider.apiKey}`,
@@ -782,9 +845,9 @@ async function testProvider(provider) {
         max_tokens: 10,
         messages: [{ role: 'user', content: 'hi' }],
       }),
-    });
-    const data = await res.json();
-    if (data.error) return { ok: false, error: data.error.message };
+    }, MODEL_TIMEOUT_MS);
+    const data = await readJsonResponse(res);
+    if (!res.ok || data.error) return { ok: false, error: getApiError(data, `HTTP ${res.status}`) };
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -798,30 +861,32 @@ async function fetchModels(provider) {
       return { ok: false, error: 'Claude API 不支持拉取模型列表，请手动输入模型名称' };
     }
     if (provider.type === PROVIDER_TYPES.GEMINI) {
-      const res = await fetch(`${provider.baseUrl}/models?key=${encodeURIComponent(provider.apiKey)}`, {
-        headers: { 'content-type': 'application/json' },
-      });
+      const res = await fetchWithTimeout(buildProviderUrl(provider, '/models'), {
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': provider.apiKey,
+        },
+      }, MODEL_TIMEOUT_MS);
+      const data = await readJsonResponse(res);
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        return { ok: false, error: errData.error?.message || `HTTP ${res.status}` };
+        return { ok: false, error: getApiError(data, `HTTP ${res.status}`) };
       }
-      const data = await res.json();
       const models = (data.models || [])
+        .filter(m => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent'))
         .map(m => (m.name || '').replace('models/', ''))
         .filter(Boolean).sort();
       return { ok: true, models };
     }
-    const res = await fetch(`${provider.baseUrl}/models`, {
+    const res = await fetchWithTimeout(`${provider.baseUrl}/models`, {
       headers: {
         'Authorization': `Bearer ${provider.apiKey}`,
         'content-type': 'application/json',
       },
-    });
+    }, MODEL_TIMEOUT_MS);
+    const data = await readJsonResponse(res);
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      return { ok: false, error: err.error?.message || `HTTP ${res.status}` };
+      return { ok: false, error: getApiError(data, `HTTP ${res.status}`) };
     }
-    const data = await res.json();
     const models = (data.data || []).map(m => m.id || m.model || m.name).filter(Boolean).sort();
     return { ok: true, models };
   } catch (err) {
